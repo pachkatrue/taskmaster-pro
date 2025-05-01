@@ -179,6 +179,28 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
               <span>Аналитика</span>
             </NavLink>
 
+            <NavLink
+              to="/tests"
+              className={({ isActive }) =>
+                `${linkClassName} ${isActive ? activeClassname : inactiveClassname}`
+              }
+            >
+              <svg
+                className="w-5 h-5 mr-3"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M3 4a1 1 0 011-1h3l1-1h6l1 1h3a1 1 0 011 1v16a1 1 0 01-1 1H4a1 1 0 01-1-1V4z"
+                />
+              </svg>
+              <span>Тесты</span>
+            </NavLink>
+
             <div className="mt-6 border-t dark:border-gray-700 pt-6">
               <NavLink
                 to="/settings"
