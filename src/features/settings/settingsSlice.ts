@@ -1,4 +1,5 @@
 import { createSlice, PayloadAction, createAsyncThunk } from '@reduxjs/toolkit';
+import { db } from '../../services/storage/db';
 
 // Типы для настроек
 export interface ThemeSettings {
@@ -68,35 +69,15 @@ export const fetchSettings = createAsyncThunk(
   'settings/fetchSettings',
   async (_, { rejectWithValue }) => {
     try {
-      // Имитация запроса к API
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const settings = await db.settings.get('1');
 
-      // В реальном приложении здесь будет запрос к API для получения настроек пользователя
-      // Возвращаем моковые данные на основе localStorage или начальных настроек
-      const savedTheme = localStorage.getItem('theme');
-      const theme = {
-        darkMode: savedTheme === 'dark' || (!savedTheme && true), // По умолчанию темная тема
-        reducedMotion: window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches,
-        accentColor: '#3730a3',
-      };
+      if (!settings) {
+        throw new Error('Настройки не найдены в IndexedDB');
+      }
 
-      return {
-        theme,
-        notifications: {
-          emailNotifications: true,
-          pushNotifications: false,
-          taskReminders: true,
-          weeklyReports: true,
-        },
-        app: {
-          language: 'ru',
-          autoSave: true,
-          dateFormat: 'DD.MM.YYYY',
-          timeFormat: '24h',
-        },
-      };
+      return settings;
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Ошибка при загрузке настроек. Попробуйте еще раз.';
+      const errorMessage = err instanceof Error ? err.message : 'Ошибка при загрузке настроек из IndexedDB';
       return rejectWithValue(errorMessage);
     }
   }

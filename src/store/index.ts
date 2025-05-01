@@ -1,5 +1,6 @@
 import { configureStore } from '@reduxjs/toolkit';
 import { TypedUseSelectorHook, useDispatch, useSelector } from 'react-redux';
+import { settingsPersistenceMiddleware } from '../features/settings/settingsPersistenceMiddleware';
 
 // Импортируем редьюсеры
 import authReducer from '../features/auth/authSlice';
@@ -23,8 +24,8 @@ export const store = configureStore({
   // Добавляем middleware, если потребуется
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({
-      serializableCheck: false, // Отключаем проверку сериализуемости для возможности хранения объектов Date и т.п.
-    }),
+      serializableCheck: false,
+    }).concat(settingsPersistenceMiddleware),
   devTools: process.env.NODE_ENV !== 'production', // Включаем DevTools только в режиме разработки
 });
 
