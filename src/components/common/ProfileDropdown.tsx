@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import {Link, useNavigate} from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -23,6 +23,7 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
                                                            userData
                                                          }) => {
   const { logout } = useAuth();
+  const navigate = useNavigate();
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Обработчик клика вне компонента для закрытия дропдауна
@@ -53,7 +54,7 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
   const handleLogout = async () => {
     try {
       await logout();
-      // После выхода дропдаун закрывается автоматически, так как перенаправляемся на страницу входа
+      navigate('/auth/login'); // ← редиректим после logout
     } catch (error) {
       console.error('Ошибка при выходе из аккаунта:', error);
     }

@@ -1,4 +1,5 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
+import RequireAuth from './components/common/RequireAuth';
 
 // Layouts
 import MainLayout from './layouts/MainLayout';
@@ -20,7 +21,11 @@ import SearchPage from './pages/SearchPage';
 export const router = createBrowserRouter([
   {
     path: '/',
-    element: <MainLayout />,
+    element: (
+      <RequireAuth>
+        <MainLayout />
+      </RequireAuth>
+    ),
     // Здесь можно добавить защиту маршрутов через loader
     children: [
       {

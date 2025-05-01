@@ -16,12 +16,15 @@ interface AuthState {
 }
 
 // Начальное состояние
-const initialState: AuthState = {
-  user: null,
-  isAuthenticated: false,
-  isLoading: false,
-  error: null,
-};
+const savedAuth = localStorage.getItem('auth');
+const initialState: AuthState = savedAuth
+  ? JSON.parse(savedAuth)
+  : {
+    user: null,
+    isAuthenticated: false,
+    isLoading: false,
+    error: null,
+  };
 
 // Асинхронные экшены для авторизации
 export const loginUser = createAsyncThunk(
@@ -35,9 +38,9 @@ export const loginUser = createAsyncThunk(
       // Моковый ответ с данными пользователя
       return {
         id: '1',
-        fullName: 'Иван Иванов',
-        email: credentials.email,
-        avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=crop&w=100&h=100&q=80',
+        fullName: 'Павел Михайлов',
+        email: 'pmihajlov14@gmail.com',
+        avatar: './user.jpg',
       };
     } catch (err) {
       // Явное преобразование типа ошибки
@@ -103,6 +106,12 @@ const authSlice = createSlice({
       state.isLoading = false;
       state.isAuthenticated = true;
       state.user = action.payload;
+
+      // сохраняем в localStorage
+      localStorage.setItem('auth', JSON.stringify({
+        user: action.payload,
+        isAuthenticated: true,
+      }));
     })
     .addCase(loginUser.rejected, (state, action) => {
       state.isLoading = false;
@@ -132,6 +141,8 @@ const authSlice = createSlice({
       state.isLoading = false;
       state.isAuthenticated = false;
       state.user = null;
+
+      localStorage.removeItem('auth');
     })
     .addCase(logoutUser.rejected, (state, action) => {
       state.isLoading = false;
