@@ -1,39 +1,133 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useState, useEffect, useCallback } from 'react';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { useNavigate } from 'react-router-dom';
+import { isValidEmail, required } from '../utils/validations';
 
 /**
- * Страница авторизации
+ * Страница авторизации с расширенной валидацией форм
+ * и улучшенным UX
  */
 const LoginPage: React.FC = () => {
+  // Состояние формы
   const [loginForm, setLoginForm] = useState({
     email: '',
     password: '',
     rememberMe: false,
   });
 
+  // Состояние валидации и ошибок
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
-  const { login } = useAuth();
-  const navigate = useNavigate();
+  const [formSubmitted, setFormSubmitted] = useState(false);
 
+  // Получаем инструменты для навигации и авторизации
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { login, error: authError, clearAuthError } = useAuth();
+
+  // Определяем, куда редиректить после успешного входа
+  const from = location.state?.from?.pathname || '/dashboard';
+
+  // Валидация отдельного поля
+  const validateField = useCallback((fieldName: string, value: string | boolean): boolean => {
+    let isValid = true;
+    const newErrors = { ...errors };
+
+    switch (fieldName) {
+      case 'email':
+        if (!required(value)) {
+          newErrors.email = 'Email обязателен';
+          isValid = false;
+        } else if (!isValidEmail(value as string)) {
+          newErrors.email = 'Введите корректный email';
+          isValid = false;
+        } else {
+          delete newErrors.email;
+        }
+        break;
+      case 'password':
+        if (!required(value)) {
+          newErrors.password = 'Пароль обязателен';
+          isValid = false;
+        } else {
+          delete newErrors.password;
+        }
+        break;
+    }
+
+    setErrors(newErrors);
+    return isValid;
+  }, [errors]);
+
+  // Валидация всей формы
+  const validateForm = useCallback((): boolean => {
+    const emailValid = validateField('email', loginForm.email);
+    const passwordValid = validateField('password', loginForm.password);
+
+    return emailValid && passwordValid;
+  }, [validateField, loginForm.email, loginForm.password]);
+
+  // Очищаем ошибки авторизации при размонтировании компонента
+  useEffect(() => {
+    return () => {
+      clearAuthError();
+    };
+  }, [clearAuthError]);
+
+  // Валидируем поля при изменении, если форма уже была отправлена
+  useEffect(() => {
+    if (formSubmitted) {
+      validateForm();
+    }
+  }, [loginForm, formSubmitted, validateForm]);
+
+  // Обработчик изменения полей формы
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type, checked } = e.target;
     setLoginForm(prev => ({
       ...prev,
       [name]: type === 'checkbox' ? checked : value,
     }));
+
+    // Если есть ошибка в этом поле и форма уже была отправлена, делаем валидацию
+    if (errors[name] && formSubmitted) {
+      validateField(name, type === 'checkbox' ? checked : value);
+    }
   };
 
+  // Обработчик отправки формы
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormSubmitted(true);
+
+    // Проверяем валидность формы
+    if (!validateForm()) {
+      return;
+    }
+
     setIsLoading(true);
 
     try {
+      // Вызываем действие входа
       await login(loginForm.email, loginForm.password);
-      navigate('/dashboard');
+      // Редиректим на предыдущую страницу или дашборд
+      navigate(from, { replace: true });
     } catch (error) {
       console.error('Ошибка входа:', error);
+      // Ошибки обрабатываются в authSlice
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Демо-вход
+  const handleDemoLogin = async () => {
+    setIsLoading(true);
+    try {
+      await login('demo@taskmaster.pro', 'demo1234');
+      navigate('/dashboard');
+    } catch (error) {
+      console.error('Ошибка входа как демо:', error);
     } finally {
       setIsLoading(false);
     }
@@ -50,6 +144,13 @@ const LoginPage: React.FC = () => {
         </p>
       </div>
 
+      {/* Отображение ошибки авторизации */}
+      {authError && (
+        <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-md">
+          {authError}
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>
           <label htmlFor="email" className="form-label">
@@ -59,12 +160,15 @@ const LoginPage: React.FC = () => {
             type="email"
             id="email"
             name="email"
-            className="form-input"
+            className={`form-input ${errors.email ? 'border-red-500' : ''}`}
             placeholder="email@example.com"
             value={loginForm.email}
             onChange={handleChange}
-            required
+            aria-invalid={!!errors.email}
           />
+          {errors.email && (
+            <p className="mt-1 text-sm text-red-500">{errors.email}</p>
+          )}
         </div>
 
         <div>
@@ -80,12 +184,15 @@ const LoginPage: React.FC = () => {
             type="password"
             id="password"
             name="password"
-            className="form-input"
+            className={`form-input ${errors.password ? 'border-red-500' : ''}`}
             placeholder="••••••••"
             value={loginForm.password}
             onChange={handleChange}
-            required
+            aria-invalid={!!errors.password}
           />
+          {errors.password && (
+            <p className="mt-1 text-sm text-red-500">{errors.password}</p>
+          )}
         </div>
 
         <div className="flex items-center">
@@ -124,20 +231,11 @@ const LoginPage: React.FC = () => {
 
         <button
           type="button"
-          onClick={async () => {
-            setIsLoading(true);
-            try {
-              await login('demo@taskmaster.pro', 'demo1234');
-              navigate('/dashboard');
-            } catch (error) {
-              console.error('Ошибка входа как демо:', error);
-            } finally {
-              setIsLoading(false);
-            }
-          }}
+          onClick={handleDemoLogin}
           className="btn-secondary w-full"
+          disabled={isLoading}
         >
-          Войти как демо
+          Войти как демо-пользователь
         </button>
 
         <div className="text-center">
