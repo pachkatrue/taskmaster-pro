@@ -23,7 +23,7 @@ const LoginPage: React.FC = () => {
   // Получаем инструменты для навигации и авторизации
   const navigate = useNavigate();
   const location = useLocation();
-  const { login, error: authError, clearAuthError } = useAuth();
+  const { login, error: authError, clearAuthError, loginWithGoogleAuth, loginWithFacebookAuth } = useAuth();
 
   // Определяем, куда редиректить после успешного входа
   const from = location.state?.from?.pathname || '/dashboard';
@@ -128,6 +128,38 @@ const LoginPage: React.FC = () => {
       navigate('/dashboard');
     } catch (error) {
       console.error('Ошибка входа как демо:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Обработчик для входа через Google
+  const handleGoogleLogin = async () => {
+    setIsLoading(true);
+    try {
+      // Вызываем метод авторизации через Google
+      await loginWithGoogleAuth();
+      // Перенаправляем на предыдущую страницу или дашборд
+      navigate(from, { replace: true });
+    } catch (error) {
+      console.error('Ошибка входа через Google:', error);
+      // Ошибки уже обрабатываются в authSlice
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Обработчик для входа через Facebook
+  const handleFacebookLogin = async () => {
+    setIsLoading(true);
+    try {
+      // Вызываем метод авторизации через Facebook
+      await loginWithFacebookAuth();
+      // Перенаправляем на предыдущую страницу или дашборд
+      navigate(from, { replace: true });
+    } catch (error) {
+      console.error('Ошибка входа через Facebook:', error);
+      // Ошибки уже обрабатываются в authSlice
     } finally {
       setIsLoading(false);
     }
@@ -261,7 +293,9 @@ const LoginPage: React.FC = () => {
         <div className="grid grid-cols-2 gap-4">
           <button
             type="button"
+            onClick={handleGoogleLogin}
             className="flex items-center justify-center py-2 px-4 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+            disabled={isLoading}
           >
             <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path
@@ -277,17 +311,19 @@ const LoginPage: React.FC = () => {
                 d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
                 fill="#EA4335"/>
             </svg>
-            Google
+            {isLoading ? 'Вход...' : 'Google'}
           </button>
           <button
             type="button"
+            onClick={handleFacebookLogin}
             className="flex items-center justify-center py-2 px-4 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+            disabled={isLoading}
           >
             <svg className="w-5 h-5 mr-2" fill="#1877F2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
               <path
                 d="M9.19795 21.5H13.198V13.4901H16.8021L17.198 9.50977H13.198V7.5C13.198 6.94772 13.6457 6.5 14.198 6.5H17.198V2.5H14.198C11.4365 2.5 9.19795 4.73858 9.19795 7.5V9.50977H7.19795L6.80206 13.4901H9.19795V21.5Z"/>
             </svg>
-            Facebook
+            {isLoading ? 'Вход...' : 'Facebook'}
           </button>
         </div>
       </form>

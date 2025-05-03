@@ -19,6 +19,7 @@ import NotFoundPage from './pages/NotFoundPage';
 import SearchPage from './pages/SearchPage';
 import TestsPage from "./pages/TestsPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
+import OAuthCallbackPage from "./pages/OAuthCallbackPage";
 
 export const router = createBrowserRouter([
   {
@@ -87,6 +88,10 @@ export const router = createBrowserRouter([
       {
         path: 'reset-password',
         element: <ResetPasswordPage />,
+      },
+      {
+        path: 'callback',
+        element: <OAuthCallbackPage />,
       },
     ],
   },

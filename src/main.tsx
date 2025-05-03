@@ -5,6 +5,7 @@ import { store } from './store';
 import App from './App';
 import './styles/global.css';
 import { registerServiceWorker } from './serviceWorkerRegistration';
+import { initSocialAuth } from './services/auth/socialAuthService';
 import DbInitializer from './components/common/DbInitializer';
 import ErrorBoundary from './components/common/ErrorBoundary';
 
@@ -12,6 +13,11 @@ import ErrorBoundary from './components/common/ErrorBoundary';
  * Регистрируем Service Worker для оффлайн-функциональности
  */
 registerServiceWorker();
+
+/**
+ * Инициализируем провайдеры социальной авторизации при старте приложения
+ */
+initSocialAuth();
 
 /**
  * Точка входа в приложение

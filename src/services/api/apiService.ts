@@ -6,6 +6,7 @@ import {SyncEntity, syncService} from '../storage/syncService';
 import { User } from '../../features/auth/authSlice';
 import { Task } from '../../features/tasks/tasksSlice';
 import { Project } from '../../features/projects/projectsSlice';
+import { SocialAuthService } from '../auth/socialAuthService';
 
 // Тип для возможных ошибок API
 export interface ApiError {
@@ -15,7 +16,7 @@ export interface ApiError {
 }
 
 // Базовый URL API
-const API_URL = process.env.REACT_APP_API_URL || 'https://api.taskmaster.example';
+const API_URL = import.meta.env.VITE_API_URL || 'https://api.taskmaster.example';
 
 /**
  * Класс для работы с API
@@ -133,6 +134,55 @@ class ApiService {
       // Пробрасываем ошибку дальше
       throw error;
     }
+  }
+
+  /**
+   * Универсальный метод для авторизации через любой социальный провайдер
+   *
+   * @param provider Идентификатор провайдера ('google' или 'facebook')
+   * @returns Результат авторизации с данными пользователя и токеном
+   * @throws Ошибку при неудачной авторизации
+   */
+  async loginWithSocialProvider(provider: 'google' | 'facebook'): Promise<{user: User; token: string}> {
+    try {
+      // Получаем сервис авторизации для запрошенного провайдера
+      const authService = SocialAuthService.getProvider(provider);
+      // Выполняем процесс авторизации
+      const result = await authService.signIn();
+
+      if (!result || !result.token || !result.user) {
+        throw new Error(`Не удалось выполнить вход через ${provider}: неверный ответ от провайдера`);
+      }
+
+      // Сохраняем полученный токен
+      this.setToken(result.token);
+
+      return {
+        user: result.user as User,
+        token: result.token
+      };
+    } catch (error) {
+      console.error(`Ошибка при авторизации через ${provider}:`, error);
+      throw new Error(`Не удалось выполнить вход через ${provider}`);
+    }
+  }
+
+  /**
+   * Авторизация через Google
+   *
+   * @returns Результат авторизации с данными пользователя и токеном
+   */
+  async loginWithGoogle(): Promise<{user: User; token: string}> {
+    return this.loginWithSocialProvider('google');
+  }
+
+  /**
+   * Авторизация через Facebook
+   *
+   * @returns Результат авторизации с данными пользователя и токеном
+   */
+  async loginWithFacebook(): Promise<{user: User; token: string}> {
+    return this.loginWithSocialProvider('facebook');
   }
 
   /**

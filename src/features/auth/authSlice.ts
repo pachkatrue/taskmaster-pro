@@ -1,4 +1,5 @@
 import { createSlice, PayloadAction, createAsyncThunk } from '@reduxjs/toolkit';
+import { apiService } from '../../services/api/apiService';
 
 // Типы для состояний авторизации
 export interface User {
@@ -50,6 +51,42 @@ export const loginUser = createAsyncThunk(
   }
 );
 
+// Асинхронный экшен для авторизации через Google
+export const loginWithGoogle = createAsyncThunk(
+  'auth/loginWithGoogle',
+  async (_, { rejectWithValue }) => {
+    try {
+      // Вызываем метод API для авторизации через Google
+      const response = await apiService.loginWithGoogle();
+      return response.user;
+    } catch (err) {
+      // Обрабатываем ошибку и преобразуем её в формат для отображения пользователю
+      const errorMessage = err instanceof Error
+        ? err.message
+        : 'Ошибка авторизации через Google. Попробуйте позже.';
+      return rejectWithValue(errorMessage);
+    }
+  }
+);
+
+// Асинхронный экшен для авторизации через Facebook
+export const loginWithFacebook = createAsyncThunk(
+  'auth/loginWithFacebook',
+  async (_, { rejectWithValue }) => {
+    try {
+      // Вызываем метод API для авторизации через Facebook
+      const response = await apiService.loginWithFacebook();
+      return response.user;
+    } catch (err) {
+      // Обрабатываем ошибку и преобразуем её в формат для отображения пользователю
+      const errorMessage = err instanceof Error
+        ? err.message
+        : 'Ошибка авторизации через Facebook. Попробуйте позже.';
+      return rejectWithValue(errorMessage);
+    }
+  }
+);
+
 export const registerUser = createAsyncThunk(
   'auth/register',
   async (userData: { fullName: string; email: string; password: string }, { rejectWithValue }) => {
@@ -94,6 +131,19 @@ const authSlice = createSlice({
     clearError: (state) => {
       state.error = null;
     },
+    // Новый редьюсер для прямой обработки успешной авторизации через OAuth
+    loginSuccess: (state, action: PayloadAction<User>) => {
+      state.isLoading = false;
+      state.isAuthenticated = true;
+      state.user = action.payload;
+      state.error = null;
+
+      // Сохраняем в localStorage для персистентности
+      localStorage.setItem('auth', JSON.stringify({
+        user: action.payload,
+        isAuthenticated: true,
+      }));
+    },
   },
   extraReducers: (builder) => {
     // Обработка состояний логина
@@ -114,6 +164,48 @@ const authSlice = createSlice({
       }));
     })
     .addCase(loginUser.rejected, (state, action) => {
+      state.isLoading = false;
+      state.error = action.payload as string;
+    })
+
+    // Обработчики для Google авторизации
+    .addCase(loginWithGoogle.pending, (state) => {
+      state.isLoading = true;
+      state.error = null;
+    })
+    .addCase(loginWithGoogle.fulfilled, (state, action: PayloadAction<User>) => {
+      state.isLoading = false;
+      state.isAuthenticated = true;
+      state.user = action.payload;
+
+      // Сохраняем состояние авторизации в localStorage для персистентности
+      localStorage.setItem('auth', JSON.stringify({
+        user: action.payload,
+        isAuthenticated: true,
+      }));
+    })
+    .addCase(loginWithGoogle.rejected, (state, action) => {
+      state.isLoading = false;
+      state.error = action.payload as string;
+    })
+
+    // Обработчики для Facebook авторизации
+    .addCase(loginWithFacebook.pending, (state) => {
+      state.isLoading = true;
+      state.error = null;
+    })
+    .addCase(loginWithFacebook.fulfilled, (state, action: PayloadAction<User>) => {
+      state.isLoading = false;
+      state.isAuthenticated = true;
+      state.user = action.payload;
+
+      // Сохраняем состояние авторизации в localStorage для персистентности
+      localStorage.setItem('auth', JSON.stringify({
+        user: action.payload,
+        isAuthenticated: true,
+      }));
+    })
+    .addCase(loginWithFacebook.rejected, (state, action) => {
       state.isLoading = false;
       state.error = action.payload as string;
     })
@@ -151,6 +243,6 @@ const authSlice = createSlice({
   },
 });
 
-export const { clearError } = authSlice.actions;
+export const { clearError, loginSuccess } = authSlice.actions;
 
 export default authSlice.reducer;
