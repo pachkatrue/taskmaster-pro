@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { isValidEmail, required } from '../utils/validations';
+import { dbService } from '../services/storage/dbService';
 
 /**
  * Страница авторизации с расширенной валидацией форм
@@ -120,14 +121,26 @@ const LoginPage: React.FC = () => {
     }
   };
 
-  // Демо-вход
+  // Демо-вход (используется как гостевой)
   const handleDemoLogin = async () => {
     setIsLoading(true);
     try {
-      await login('demo@taskmaster.pro', 'demo1234');
+      // Вызываем стандартный вход
+      const result = await login('demo@taskmaster.pro', 'demo1234');
+
+      // После входа создаем сессию как для демо-пользователя
+      await dbService.createAuthSession(
+        result,
+        `demo_token_${Date.now()}`,
+        'demo' // Используем тип провайдера 'demo'
+      );
+
+      // Отмечаем, что это демо-режим в localStorage
+      localStorage.setItem('demo_mode', 'true');
+
       navigate('/dashboard');
     } catch (error) {
-      console.error('Ошибка входа как демо:', error);
+      console.error('Ошибка входа в демо-режим:', error);
     } finally {
       setIsLoading(false);
     }
@@ -264,10 +277,13 @@ const LoginPage: React.FC = () => {
         <button
           type="button"
           onClick={handleDemoLogin}
-          className="btn-secondary w-full"
+          className="btn-secondary w-full flex justify-center items-center"
           disabled={isLoading}
         >
-          Войти как демо-пользователь
+          <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+            <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"></path>
+          </svg>
+          {isLoading ? 'Вход...' : 'Гостевой вход (без регистрации)'}
         </button>
 
         <div className="text-center">

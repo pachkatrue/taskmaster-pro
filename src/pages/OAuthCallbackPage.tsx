@@ -53,7 +53,7 @@ const OAuthCallbackPage: React.FC = () => {
         const result = await googleAuthService.handleCallback(code);
 
         // Сохраняем данные пользователя и токен
-        loginSuccess(result.user, result.token);
+        await loginSuccess(result.user, result.token);
 
         // Перенаправляем на дашборд
         navigate('/dashboard', { replace: true });

@@ -6,30 +6,60 @@ import {
   logoutUser,
   loginWithFacebook,
   clearError,
+  tryAutoLogin,
   User
 } from '../features/auth/authSlice';
+import { dbService } from '../services/storage/dbService';
 
 /**
  * Хук для работы с авторизацией
  * Предоставляет интерфейс для входа, регистрации и выхода из системы,
- * включая методы авторизации через социальные сети
+ * включая методы авторизации через социальные сети и гостевой доступ
  */
 export const useAuth = () => {
   const dispatch = useAppDispatch();
   const { user, isAuthenticated, isLoading, error } = useAppSelector(state => state.auth);
 
-  // Функция входа в систему через email/пароль
-  const login = useCallback(
-    (email: string, password: string) => {
-      return dispatch(loginUser({ email, password }));
+  // Функция проверки наличия активной сессии
+  const checkSession = useCallback(
+    () => {
+      return dispatch(tryAutoLogin());
     },
     [dispatch]
   );
 
-  // Функция регистрации
+  // Функция входа через email/пароль с сохранением сессии
+  const login = useCallback(
+    async (email: string, password: string) => {
+      const result = await dispatch(loginUser({ email, password })).unwrap();
+
+      const isDemo = email === 'demo@taskmaster.pro';
+      await dbService.createAuthSession(
+        result,
+        `token_${Date.now()}`,
+        isDemo ? 'guest' : 'email'
+      );
+      if (isDemo) {
+        localStorage.setItem('guest_mode', 'true');
+      }
+      return result;
+    },
+    [dispatch]
+  );
+
+  // Функция регистрации с сохранением сессии
   const register = useCallback(
-    (fullName: string, email: string, password: string) => {
-      return dispatch(registerUser({ fullName, email, password }));
+    async (fullName: string, email: string, password: string) => {
+      const result = await dispatch(registerUser({ fullName, email, password })).unwrap();
+
+      // Если успешная регистрация, создаем сессию
+      await dbService.createAuthSession(
+        result,
+        `token_${Date.now()}`,
+        'email'
+      );
+
+      return result;
     },
     [dispatch]
   );
@@ -50,39 +80,53 @@ export const useAuth = () => {
 
   // Функция входа через Facebook
   const loginWithFacebookAuth = useCallback(
-    () => {
-      return dispatch(loginWithFacebook());
+    async () => {
+      const result = await dispatch(loginWithFacebook()).unwrap();
+
+      // Если успешный вход, создаем сессию
+      await dbService.createAuthSession(
+        result,
+        `facebook_token_${Date.now()}`,
+        'facebook'
+      );
+
+      return result;
     },
     [dispatch]
   );
 
   // Функция обработки успешной авторизации через OAuth
   const loginSuccess = useCallback(
-    (userData: User, token: string) => {
-      // Здесь мы вручную устанавливаем состояние аутентификации
-      // без использования асинхронного экшена
+    async (userData: User, token: string) => {
+      try {
+        // Проверяем, был ли пользователь в гостевом режиме
+        const isGuest = localStorage.getItem('guest_mode') === 'true';
 
-      // Сохраняем в localStorage
-      localStorage.setItem('auth', JSON.stringify({
-        user: userData,
-        isAuthenticated: true,
-      }));
+        if (isGuest && user) {
+          // Мигрируем данные гостевого пользователя
+          await dbService.migrateGuestData(user.id, userData.id);
+          localStorage.removeItem('guest_mode');
+        }
 
-      // Сохраняем токен
-      localStorage.setItem('auth_token', token);
+        // Создаем сессию в IndexedDB
+        const provider = token.includes('google') ? 'google' : 'facebook';
+        await dbService.createAuthSession(userData, token, provider);
 
-      // Обновляем состояние в Redux
-      dispatch({
-        type: 'auth/loginSuccess',
-        payload: userData
-      });
+        // Обновляем состояние в Redux
+        dispatch({
+          type: 'auth/loginSuccess',
+          payload: userData
+        });
+      } catch (error) {
+        console.error('Ошибка при обработке успешной авторизации:', error);
+      }
     },
-    [dispatch]
+    [dispatch, user]
   );
 
-  // Функция выхода из системы
+  // Функция выхода с учетом индексированной БД
   const logout = useCallback(
-    () => {
+    async () => {
       return dispatch(logoutUser());
     },
     [dispatch]
@@ -96,6 +140,7 @@ export const useAuth = () => {
     [dispatch]
   );
 
+  // Возвращаем расширенный набор функций
   return {
     user,
     isAuthenticated,
@@ -107,6 +152,7 @@ export const useAuth = () => {
     loginWithGoogleAuth,
     loginWithFacebookAuth,
     loginSuccess,
-    clearAuthError
+    clearAuthError,
+    checkSession
   };
 };

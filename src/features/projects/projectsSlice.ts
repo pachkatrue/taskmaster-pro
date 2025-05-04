@@ -1,4 +1,4 @@
-import { createSlice, PayloadAction, createAsyncThunk } from '@reduxjs/toolkit';
+import { createSlice, PayloadAction, createAsyncThunk, createAction } from '@reduxjs/toolkit';
 import { projectStorage } from '../../services/storage/projectStorage';
 
 // Типы для проектов
@@ -19,6 +19,8 @@ export interface Project {
   }[];
   createdAt: string;
   updatedAt: string;
+  demoData?: boolean; // Добавляем флаг демо-данных
+  createdBy?: string; // Добавляем поле для определения создателя
 }
 
 interface ProjectsState {
@@ -33,6 +35,11 @@ const initialState: ProjectsState = {
   isLoading: false,
   error: null,
 };
+
+// Новые экшены для работы с оптимизированной загрузкой проектов
+export const fetchProjectsStart = createAction('projects/fetchProjectsStart');
+export const fetchProjectsSuccess = createAction<Project[]>('projects/fetchProjectsSuccess');
+export const fetchProjectsError = createAction<string>('projects/fetchProjectsError');
 
 // Асинхронные экшены для проектов с использованием хранилища
 export const fetchProjects = createAsyncThunk(
@@ -213,8 +220,23 @@ const projectsSlice = createSlice({
     },
   },
   extraReducers: (builder) => {
-    // Обработка состояний получения проектов
+    // Обработка новых экшенов для оптимизированной загрузки
     builder
+    .addCase(fetchProjectsStart, (state) => {
+      state.isLoading = true;
+      state.error = null;
+    })
+    .addCase(fetchProjectsSuccess, (state, action: PayloadAction<Project[]>) => {
+      state.isLoading = false;
+      state.error = null;
+      state.projects = action.payload;
+    })
+    .addCase(fetchProjectsError, (state, action: PayloadAction<string>) => {
+      state.isLoading = false;
+      state.error = action.payload;
+    })
+
+    // Обработка состояний получения проектов
     .addCase(fetchProjects.pending, (state) => {
       state.isLoading = true;
       state.error = null;

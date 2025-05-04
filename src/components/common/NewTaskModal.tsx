@@ -3,6 +3,7 @@ import Modal from '../ui/Modal';
 import { useTasks } from '../../hooks/useTasks';
 import { useProjects } from '../../hooks/useProjects';
 import { TaskPriority, TaskStatus } from '../../features/tasks/tasksSlice';
+import { dbService } from '../../services/storage/dbService';
 
 interface NewTaskModalProps {
   isOpen: boolean;
@@ -85,8 +86,24 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onClose, projectId 
     setIsLoading(true);
 
     try {
+      // Проверяем, находимся ли мы в демо-режиме
+      const session = await dbService.getCurrentSession();
+      const isDemo = session?.provider === 'demo' || localStorage.getItem('demo_mode') === 'true';
+
+      // Получаем данные об исполнителе, если он выбран
+      const assignee = undefined;
+      if (formData.assigneeId) {
+        // Здесь можно добавить логику для получения данных об исполнителе
+        // Например, через API или из Redux-состояния
+      }
+
       // Создаем новую задачу
-      await addTask(formData);
+      await addTask({
+        ...formData,
+        assignee,
+        demoData: isDemo, // Добавляем флаг демо-данных
+        createdBy: session?.userId || 'unknown' // Добавляем создателя
+      });
 
       // Закрываем модальное окно и сбрасываем форму
       resetForm();

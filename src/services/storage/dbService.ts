@@ -1,8 +1,9 @@
-import {db, handleDexieError} from './db';
+import { db, handleDexieError, AuthSession, WithDemoFlag } from './db';
 import { Task } from '../../features/tasks/tasksSlice';
 import { Project } from '../../features/projects/projectsSlice';
 import { User } from '../../features/auth/authSlice';
 import { Table } from 'dexie';
+import { v4 as uuidv4 } from 'uuid';
 
 /**
  * Сервис для инициализации базы данных
@@ -80,7 +81,7 @@ export const dbService = {
           await db.users.add(demoUser);
 
           // Создаем демо-проекты
-          const demoProjects: Project[] = [
+          const demoProjects: (Project & WithDemoFlag)[] = [
             {
               id: '1',
               title: 'Редизайн веб-сайта',
@@ -108,6 +109,8 @@ export const dbService = {
               ],
               createdAt: '2025-03-25T10:00:00Z',
               updatedAt: '2025-04-15T14:30:00Z',
+              demoData: true, // Помечаем как демо-данные
+              createdBy: '1'
             },
             {
               id: '2',
@@ -131,6 +134,8 @@ export const dbService = {
               ],
               createdAt: '2025-03-10T09:15:00Z',
               updatedAt: '2025-04-12T11:20:00Z',
+              demoData: true, // Помечаем как демо-данные
+              createdBy: '1'
             },
             {
               id: '3',
@@ -154,13 +159,15 @@ export const dbService = {
               ],
               createdAt: '2025-04-01T13:45:00Z',
               updatedAt: '2025-04-10T15:00:00Z',
+              demoData: true, // Помечаем как демо-данные
+              createdBy: '1'
             },
           ];
 
           await db.projects.bulkAdd(demoProjects);
 
           // Создаем демо-задачи
-          const demoTasks: Task[] = [
+          const demoTasks: (Task & WithDemoFlag)[] = [
             {
               id: '1',
               title: 'Создать дизайн-систему',
@@ -177,6 +184,8 @@ export const dbService = {
               },
               createdAt: '2025-03-20T10:00:00Z',
               updatedAt: '2025-04-05T15:30:00Z',
+              demoData: true, // Помечаем как демо-данные
+              createdBy: '1'
             },
             {
               id: '2',
@@ -194,6 +203,8 @@ export const dbService = {
               },
               createdAt: '2025-04-01T09:15:00Z',
               updatedAt: '2025-04-10T11:20:00Z',
+              demoData: true, // Помечаем как демо-данные
+              createdBy: '1'
             },
             {
               id: '3',
@@ -211,6 +222,8 @@ export const dbService = {
               },
               createdAt: '2025-04-05T13:45:00Z',
               updatedAt: '2025-04-05T13:45:00Z',
+              demoData: true, // Помечаем как демо-данные
+              createdBy: '1'
             },
             {
               id: '4',
@@ -228,6 +241,8 @@ export const dbService = {
               },
               createdAt: '2025-03-25T09:30:00Z',
               updatedAt: '2025-04-12T14:00:00Z',
+              demoData: true, // Помечаем как демо-данные
+              createdBy: '1'
             },
             {
               id: '5',
@@ -245,6 +260,8 @@ export const dbService = {
               },
               createdAt: '2025-04-02T11:20:00Z',
               updatedAt: '2025-04-15T10:45:00Z',
+              demoData: true, // Помечаем как демо-данные
+              createdBy: '1'
             },
             {
               id: '6',
@@ -262,6 +279,8 @@ export const dbService = {
               },
               createdAt: '2025-04-10T15:00:00Z',
               updatedAt: '2025-04-10T15:00:00Z',
+              demoData: true, // Помечаем как демо-данные
+              createdBy: '1'
             },
           ];
 
@@ -286,13 +305,14 @@ export const dbService = {
               autoSave: true,
               dateFormat: 'DD.MM.YYYY',
               timeFormat: '24h',
-            }
+            },
+            demoData: true, // Помечаем как демо-данные
           };
 
           await db.settings.add(demoSettings);
 
           console.log('Демо-данные успешно добавлены');
-      });
+        });
     } catch (error) {
       handleDexieError(error, 'Ошибка при заполнении базы данных');
     }
@@ -328,7 +348,7 @@ export const dbService = {
     estimatedSize?: number;
   }> {
     try {
-      const tables = ['tasks', 'projects', 'users', 'settings', 'syncQueue'] as const;
+      const tables = ['tasks', 'projects', 'users', 'settings', 'syncQueue', 'authSessions'] as const;
       const counts: Record<string, number> = {};
 
       // Проверяем, открыта ли база данных
@@ -393,6 +413,386 @@ export const dbService = {
     } catch (error) {
       console.error('Ошибка при оптимизации базы данных:', error);
       return false;
+    }
+  },
+
+  /**
+   * Создает новую сессию пользователя при входе
+   * @param user Данные пользователя
+   * @param token Токен авторизации
+   * @param provider Провайдер авторизации
+   * @returns Объект сессии
+   */
+  async createAuthSession(
+    user: User,
+    token: string,
+    provider: 'email' | 'google' | 'facebook' | 'guest' | 'demo',
+    refreshToken?: string
+  ): Promise<AuthSession> {
+    try {
+      // Проверяем, существует ли пользователь в базе
+      const existingUser = await db.users.get(user.id);
+
+      // Если это демо-пользователь, создаем изолированное пространство данных
+      const isDemo = provider === 'demo' || user.email === 'demo@taskmaster.pro';
+
+      // Если пользователя нет в базе, добавляем его
+      if (!existingUser) {
+        await db.users.add(user);
+      } else if (provider !== 'guest' && !isDemo) {
+        // Обновляем данные пользователя, если это не гостевой вход и не демо
+        await db.users.update(user.id, user);
+      }
+
+      // Генерируем уникальный deviceId, если он еще не создан
+      let deviceId = localStorage.getItem('device_id');
+      if (!deviceId) {
+        deviceId = uuidv4();
+        localStorage.setItem('device_id', deviceId);
+      }
+
+      // Срок действия токена (например, 30 дней)
+      const expiresAt = Date.now() + 30 * 24 * 60 * 60 * 1000;
+
+      // Создаем новую сессию
+      const newSession: AuthSession = {
+        id: uuidv4(),
+        userId: user.id,
+        token,
+        refreshToken,
+        provider: isDemo ? 'demo' : provider, // Явно помечаем демо-сессию
+        deviceId,
+        lastActive: Date.now(),
+        expiresAt,
+        metadata: {
+          deviceInfo: navigator.userAgent,
+          isDemo: isDemo, // Добавляем флаг демо-режима в метаданные
+        }
+      };
+
+      // Сохраняем сессию в базе данных
+      await db.authSessions.add(newSession);
+
+      // Обновляем локальную информацию о текущей сессии
+      localStorage.setItem('current_session_id', newSession.id);
+
+      // Если это демо-режим, сохраняем флаг
+      if (isDemo) {
+        localStorage.setItem('demo_mode', 'true');
+      } else {
+        localStorage.removeItem('demo_mode');
+      }
+
+      return newSession;
+    } catch (error) {
+      return handleDexieError(error, 'Не удалось создать сессию авторизации');
+    }
+  },
+
+  /**
+   * Получает активную сессию пользователя
+   * @returns Объект активной сессии или null
+   */
+  async getCurrentSession(): Promise<AuthSession | null> {
+    try {
+      const sessionId = localStorage.getItem('current_session_id');
+      if (!sessionId) return null;
+
+      const session = await db.authSessions.get(sessionId) ?? null;
+
+      // Проверяем, не истекла ли сессия
+      if (session && session.expiresAt && session.expiresAt < Date.now()) {
+        // Если сессия истекла, удаляем её
+        await db.authSessions.delete(sessionId);
+        localStorage.removeItem('current_session_id');
+        return null;
+      }
+
+      return session;
+    } catch (error) {
+      console.error('Ошибка при получении текущей сессии:', error);
+      return null;
+    }
+  },
+
+  /**
+   * Обновляет время последней активности для сессии
+   * @param sessionId ID сессии
+   */
+  async updateSessionActivity(sessionId: string): Promise<void> {
+    try {
+      await db.authSessions.update(sessionId, {
+        lastActive: Date.now()
+      });
+    } catch (error) {
+      console.error('Ошибка при обновлении активности сессии:', error);
+    }
+  },
+
+  /**
+   * Закрывает текущую сессию пользователя при выходе
+   */
+  async closeCurrentSession(): Promise<void> {
+    try {
+      const sessionId = localStorage.getItem('current_session_id');
+      if (sessionId) {
+        await db.authSessions.delete(sessionId);
+        localStorage.removeItem('current_session_id');
+        localStorage.removeItem('demo_mode');
+      }
+    } catch (error) {
+      console.error('Ошибка при закрытии сессии:', error);
+    }
+  },
+
+  /**
+   * Получает все активные сессии пользователя
+   * @param userId ID пользователя
+   * @returns Массив активных сессий пользователя
+   */
+  async getUserSessions(userId: string): Promise<AuthSession[]> {
+    try {
+      // Получаем все сессии пользователя
+      const sessions = await db.authSessions
+      .where('userId').equals(userId)
+      .toArray();
+
+      // Фильтруем по активным (не истекшим) сессиям
+      const currentTime = Date.now();
+      return sessions.filter(session =>
+        !session.expiresAt || session.expiresAt > currentTime
+      );
+    } catch (error) {
+      console.error('Ошибка при получении сессий пользователя:', error);
+      return [];
+    }
+  },
+
+  /**
+   * Создает гостевую сессию для неавторизованных пользователей
+   * @returns Объект гостевой сессии
+   */
+  async createGuestSession(): Promise<AuthSession> {
+    try {
+      // Создаем временного гостевого пользователя
+      const guestUser: User = {
+        id: `guest_${uuidv4()}`,
+        fullName: 'Гостевой пользователь',
+        email: `guest_${Date.now()}@example.com`
+      };
+
+      // Добавляем пользователя в базу
+      await db.users.add(guestUser);
+
+      // Создаем гостевую сессию
+      return await this.createAuthSession(
+        guestUser,
+        `guest_token_${uuidv4()}`,
+        'guest'
+      );
+    } catch (error) {
+      return handleDexieError(error, 'Не удалось создать гостевую сессию');
+    }
+  },
+
+  /**
+   * Миграция данных из гостевой сессии в авторизованную
+   * @param guestUserId ID гостевого пользователя
+   * @param authenticatedUserId ID авторизованного пользователя
+   */
+  async migrateGuestData(guestUserId: string, authenticatedUserId: string): Promise<void> {
+    try {
+      // Начинаем транзакцию для атомарности операции
+      await db.runTransaction('readwrite', ['tasks', 'projects', 'users'], async () => {
+        // Находим все задачи гостевого пользователя
+        const guestTasks = await db.tasks
+        .where('assigneeId')
+        .equals(guestUserId)
+        .toArray();
+
+        // Обновляем assigneeId в задачах на ID авторизованного пользователя
+        for (const task of guestTasks) {
+          await db.tasks.update(task.id, { assigneeId: authenticatedUserId });
+        }
+
+        // Находим все проекты гостевого пользователя
+        const guestProjects = await db.projects
+        .filter(project =>
+          project.teamMembers?.some(member => member.id === guestUserId)
+        )
+        .toArray();
+
+        // Обновляем teamMembers в проектах
+        for (const project of guestProjects) {
+          const updatedTeamMembers = project.teamMembers?.map(member =>
+            member.id === guestUserId ? { ...member, id: authenticatedUserId } : member
+          );
+
+          await db.projects.update(project.id, { teamMembers: updatedTeamMembers });
+        }
+
+        // Удаляем гостевого пользователя
+        await db.users.delete(guestUserId);
+      });
+
+      console.log('Данные гостевой сессии успешно перенесены');
+    } catch (error) {
+      handleDexieError(error, 'Ошибка при миграции данных гостевой сессии');
+    }
+  },
+
+  /**
+   * Обработка сценария автоматического входа
+   * @returns Объект пользователя, если автовход выполнен успешно
+   */
+  async tryAutoLogin(): Promise<User | null> {
+    try {
+      // Проверяем наличие активной сессии
+      const currentSession = await this.getCurrentSession();
+
+      if (currentSession) {
+        // Обновляем время последней активности
+        await this.updateSessionActivity(currentSession.id);
+
+        // Получаем данные пользователя из базы
+        const user = await db.users.get(currentSession.userId);
+
+        if (user) {
+          // Восстанавливаем демо-режим, если сессия демо
+          if (currentSession.provider === 'demo' || currentSession.metadata?.isDemo) {
+            localStorage.setItem('demo_mode', 'true');
+          }
+
+          return user;
+        }
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Ошибка при попытке автоматического входа:', error);
+      return null;
+    }
+  },
+
+  /**
+   * Получает задачи для текущего пользователя с учетом демо-режима
+   * @returns Массив задач пользователя
+   */
+  async getUserTasks(): Promise<Task[]> {
+    try {
+      const session = await this.getCurrentSession();
+      if (!session) return [];
+
+      const isDemo = session.provider === 'demo' || localStorage.getItem('demo_mode') === 'true';
+
+      // Если это демо-режим, возвращаем только демо-задачи
+      if (isDemo) {
+        return await db.tasks
+        .filter(task => task.demoData === true)
+        .toArray();
+      }
+
+      // Иначе возвращаем задачи текущего пользователя
+      return await db.tasks
+      .filter(task => !task.demoData && (task.assigneeId === session.userId || task.createdBy === session.userId))
+      .toArray();
+    } catch (error) {
+      console.error('Ошибка при получении задач пользователя:', error);
+      return [];
+    }
+  },
+
+  /**
+   * Получает проекты для текущего пользователя с учетом демо-режима
+   * @returns Массив проектов пользователя
+   */
+  async getUserProjects(): Promise<Project[]> {
+    try {
+      const session = await this.getCurrentSession();
+      if (!session) return [];
+
+      const isDemo = session.provider === 'demo' || localStorage.getItem('demo_mode') === 'true';
+
+      // Если это демо-режим, возвращаем только демо-проекты
+      if (isDemo) {
+        return await db.projects
+        .filter(project => project.demoData === true)
+        .toArray();
+      }
+
+      // Иначе возвращаем проекты, в которых участвует пользователь
+      return await db.projects
+      .filter(project =>
+        !project.demoData &&
+        (project.teamMembers?.some(member => member.id === session.userId) ||
+          project.createdBy === session.userId)
+      )
+      .toArray();
+    } catch (error) {
+      console.error('Ошибка при получении проектов пользователя:', error);
+      return [];
+    }
+  },
+
+  /**
+   * Создает новую задачу с учетом демо-режима
+   * @param taskData Данные задачи
+   * @returns Созданная задача
+   */
+  async createTask(taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>): Promise<Task> {
+    try {
+      const session = await this.getCurrentSession();
+      if (!session) throw new Error('Пользователь не авторизован');
+
+      const isDemo = session.provider === 'demo' || localStorage.getItem('demo_mode') === 'true';
+
+      // Создаем задачу с нужными метаданными
+      const task: Task & WithDemoFlag = {
+        ...taskData,
+        id: uuidv4(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        createdBy: session.userId,
+        demoData: isDemo, // Помечаем как демо-данные, если это демо-режим
+      };
+
+      // Добавляем задачу в базу данных
+      await db.tasks.add(task);
+
+      return task;
+    } catch (error) {
+      return handleDexieError(error, 'Ошибка при создании задачи');
+    }
+  },
+
+  /**
+   * Создает новый проект с учетом демо-режима
+   * @param project Данные проекта
+   * @returns Созданный проект
+   */
+  async createProject(projectData: Omit<Project, 'id' | 'createdAt' | 'updatedAt'>): Promise<Project> {
+    try {
+      const session = await this.getCurrentSession();
+      if (!session) throw new Error('Пользователь не авторизован');
+
+      const isDemo = session.provider === 'demo' || localStorage.getItem('demo_mode') === 'true';
+
+      // Создаем проект с нужными метаданными
+      const project: Project & WithDemoFlag = {
+        ...projectData,
+        id: uuidv4(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        createdBy: session.userId,
+        demoData: isDemo, // Помечаем как демо-данные, если это демо-режим
+      };
+
+      // Добавляем проект в базу данных
+      await db.projects.add(project);
+
+      return project;
+    } catch (error) {
+      return handleDexieError(error, 'Ошибка при создании проекта');
     }
   }
 };

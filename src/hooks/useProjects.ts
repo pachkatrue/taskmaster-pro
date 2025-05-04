@@ -1,7 +1,9 @@
 import { useCallback } from 'react';
 import { useAppDispatch, useAppSelector } from '../store';
 import {
-  fetchProjects,
+  fetchProjectsStart,
+  fetchProjectsSuccess,
+  fetchProjectsError,
   fetchProjectById,
   createProject,
   updateProject,
@@ -10,6 +12,7 @@ import {
   Project,
   ProjectStatus
 } from '../features/projects/projectsSlice';
+import { dbService } from '../services/storage/dbService';
 
 /**
  * Хук для работы с проектами
@@ -19,13 +22,20 @@ export const useProjects = () => {
   const dispatch = useAppDispatch();
   const { projects, isLoading, error } = useAppSelector(state => state.projects);
 
-  // Загрузка всех проектов
-  const loadProjects = useCallback(
-    () => {
-      return dispatch(fetchProjects());
-    },
-    [dispatch]
-  );
+  // Загрузка проектов с учетом демо-режима
+  const loadProjects = useCallback(async () => {
+    dispatch(fetchProjectsStart());
+    try {
+      // Используем новый метод для получения проектов в зависимости от типа аккаунта
+      const userProjects = await dbService.getUserProjects();
+      dispatch(fetchProjectsSuccess(userProjects));
+      return userProjects;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Ошибка при загрузке проектов';
+      dispatch(fetchProjectsError(errorMessage));
+      throw error;
+    }
+  }, [dispatch]);
 
   // Загрузка проекта по ID
   const loadProject = useCallback(

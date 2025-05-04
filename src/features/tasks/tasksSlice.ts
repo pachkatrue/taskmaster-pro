@@ -1,4 +1,4 @@
-import { createSlice, PayloadAction, createAsyncThunk } from '@reduxjs/toolkit';
+import { createSlice, PayloadAction, createAsyncThunk, createAction } from '@reduxjs/toolkit';
 import { taskStorage } from '../../services/storage/taskStorage';
 
 // Типы для задач
@@ -21,6 +21,8 @@ export interface Task {
   };
   createdAt: string;
   updatedAt: string;
+  demoData?: boolean; // Добавляем флаг демо-данных
+  createdBy?: string; // Добавляем поле для определения создателя
 }
 
 interface TasksState {
@@ -35,6 +37,11 @@ const initialState: TasksState = {
   isLoading: false,
   error: null,
 };
+
+// Новые экшены для работы с оптимизированной загрузкой задач
+export const fetchTasksStart = createAction('tasks/fetchTasksStart');
+export const fetchTasksSuccess = createAction<Task[]>('tasks/fetchTasksSuccess');
+export const fetchTasksError = createAction<string>('tasks/fetchTasksError');
 
 // Асинхронные экшены для задач, использующие хранилище вместо моков
 export const fetchTasks = createAsyncThunk(
@@ -153,6 +160,20 @@ const tasksSlice = createSlice({
   extraReducers: (builder) => {
     // Обработка состояний получения задач
     builder
+    .addCase(fetchTasksStart, (state) => {
+      state.isLoading = true;
+      state.error = null;
+    })
+    .addCase(fetchTasksSuccess, (state, action: PayloadAction<Task[]>) => {
+      state.isLoading = false;
+      state.error = null;
+      state.tasks = action.payload;
+    })
+    .addCase(fetchTasksError, (state, action: PayloadAction<string>) => {
+      state.isLoading = false;
+      state.error = action.payload;
+    })
+
     .addCase(fetchTasks.pending, (state) => {
       state.isLoading = true;
       state.error = null;

@@ -7,6 +7,7 @@ import type { SyncQueueItem } from './syncService';
 // Интерфейс для настроек
 interface AppSettings {
   id: string;
+  userId?: string;
   theme: {
     darkMode: boolean;
     reducedMotion: boolean;
@@ -24,6 +25,33 @@ interface AppSettings {
     dateFormat: string;
     timeFormat: string;
   };
+  demoData?: boolean; // Флаг для демо-данных
+}
+
+/**
+ * Интерфейс для хранения сессий пользователей
+ */
+export interface AuthSession {
+  id: string;
+  userId: string;
+  token: string;
+  refreshToken?: string;
+  provider: 'email' | 'google' | 'facebook' | 'guest' | 'demo'; // Добавили тип 'demo'
+  deviceId: string;
+  lastActive: number; // timestamp
+  expiresAt?: number; // timestamp
+  metadata?: {
+    deviceInfo?: string;
+    ipAddress?: string;
+    location?: string;
+    isDemo?: boolean; // Флаг для демо-режима
+  };
+}
+
+// Расширяем интерфейсы для поддержки демо-данных
+export interface WithDemoFlag {
+  demoData?: boolean;
+  createdBy?: string;
 }
 
 /**
@@ -32,11 +60,12 @@ interface AppSettings {
  */
 class TaskMasterDatabase extends Dexie {
   // Типизированные таблицы
-  tasks!: Table<Task, string>;
-  projects!: Table<Project, string>;
+  tasks!: Table<Task & WithDemoFlag, string>;
+  projects!: Table<Project & WithDemoFlag, string>;
   users!: Table<User, string>;
   settings!: Table<AppSettings, string>;
   syncQueue!: Table<SyncQueueItem, string>;
+  authSessions!: Table<AuthSession, string>;
 
   constructor() {
     super('taskMasterPro');
@@ -50,15 +79,15 @@ class TaskMasterDatabase extends Dexie {
       syncQueue: 'id, entity, operation, timestamp',
     });
 
-    // Готовим для будущих миграций, например, версия 2
-    // this.version(2).stores({
-    //   tasks: 'id, status, priority, projectId, assigneeId, dueDate, createdAt, tags', // Добавлено поле tags
-    // }).upgrade(tx => {
-    //   // Миграция данных - добавляем пустой массив тегов для всех задач
-    //   return tx.tasks.toCollection().modify(task => {
-    //     task.tags = [];
-    //   });
-    // });
+    // Добавляем новую версию схемы с поддержкой authSessions и демо-данных
+    this.version(2).stores({
+      tasks: 'id, status, priority, projectId, assigneeId, dueDate, createdAt, demoData, createdBy',
+      projects: 'id, status, progress, startDate, endDate, createdAt, demoData, createdBy',
+      users: 'id, email',
+      settings: 'id, demoData',
+      syncQueue: 'id, entity, operation, timestamp',
+      authSessions: 'id, userId, token, provider, deviceId, lastActive, expiresAt'
+    });
 
     // Обработчик ошибок открытия БД
     this.on('blocked', () => console.warn('База данных заблокирована другой вкладкой'));

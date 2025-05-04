@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import Modal from '../ui/Modal';
 import { useProjects } from '../../hooks/useProjects';
 import { ProjectStatus } from '../../features/projects/projectsSlice';
+import { dbService } from '../../services/storage/dbService';
 
 interface NewProjectModalProps {
   isOpen: boolean;
@@ -136,6 +137,10 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClose }) =>
     setIsLoading(true);
 
     try {
+      // Проверяем, находимся ли мы в демо-режиме
+      const session = await dbService.getCurrentSession();
+      const isDemo = session?.provider === 'demo' || localStorage.getItem('demo_mode') === 'true';
+
       // Подготавливаем данные для создания проекта
       const selectedMembers = teamMembers.filter(member =>
         formData.selectedTeamMembers.includes(member.id)
@@ -150,6 +155,8 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClose }) =>
         startDate: formData.startDate,
         endDate: formData.endDate,
         teamMembers: selectedMembers,
+        demoData: isDemo, // Добавляем флаг демо-данных
+        createdBy: session?.userId || 'unknown' // Добавляем создателя
       });
 
       // Закрываем модальное окно и сбрасываем форму

@@ -3,6 +3,7 @@ import {Project, ProjectStatus} from '../../features/projects/projectsSlice';
 import { syncService } from './syncService';
 import { generateId } from '../../utils';
 import { taskStorage } from './taskStorage';
+import { dbService } from './dbService';
 
 /**
  * Сервис для работы с проектами в локальном хранилище
@@ -14,7 +15,27 @@ export const projectStorage = {
    */
   async getAllProjects(): Promise<Project[]> {
     try {
-      return await db.projects.toArray();
+      // Проверяем, находимся ли мы в демо-режиме
+      const session = await dbService.getCurrentSession();
+      const isDemo = session?.provider === 'demo' || localStorage.getItem('demo_mode') === 'true';
+
+      if (isDemo) {
+        // В демо-режиме возвращаем только демо-проекты
+        return await db.projects
+        .filter(project => project.demoData === true)
+        .toArray();
+      } else if (session) {
+        // В обычном режиме возвращаем только проекты пользователя
+        return await db.projects
+        .filter(project =>
+          !project.demoData &&
+          (project.teamMembers?.some(member => member.id === session.userId) ||
+            project.createdBy === session.userId)
+        )
+        .toArray();
+      }
+
+      return [];
     } catch (error) {
       handleDexieError(error, 'Ошибка при получении проектов');
       return [];
@@ -27,7 +48,22 @@ export const projectStorage = {
   async getProjectById(id: string): Promise<Project | undefined> {
     try {
       const project = await db.projects.get(id);
-      return project;
+
+      if (!project) return undefined;
+
+      // Проверяем, находимся ли мы в демо-режиме
+      const session = await dbService.getCurrentSession();
+      const isDemo = session?.provider === 'demo' || localStorage.getItem('demo_mode') === 'true';
+
+      // Проверяем доступ к проекту
+      if ((isDemo && project.demoData) ||
+        (!isDemo && !project.demoData && session &&
+          (project.teamMembers?.some(member => member.id === session.userId) ||
+            project.createdBy === session.userId))) {
+        return project;
+      }
+
+      return undefined;
     } catch (error) {
       handleDexieError(error, `Ошибка при получении проекта с ID ${id}`);
       return undefined;
@@ -45,9 +81,16 @@ export const projectStorage = {
    * Удалить участника из проекта
    */
   async removeTeamMember(projectId: string, memberId: string): Promise<Project> {
+    // Получаем проект по ID с проверкой прав доступа
+    const project = await this.getProjectById(projectId);
+
+    if (!project) {
+      throw new Error(`Проект с ID ${projectId} не найден или доступ запрещен`);
+    }
+
     return await this.updateProject({
       id: projectId,
-      teamMembers: (await this.getProjectById(projectId))?.teamMembers.filter(m => m.id !== memberId)
+      teamMembers: project.teamMembers.filter(m => m.id !== memberId)
     });
   },
 
@@ -56,10 +99,9 @@ export const projectStorage = {
    */
   async getActiveProjects(): Promise<Project[]> {
     try {
-      return await db.projects
-      .where('status')
-      .equals('active')
-      .toArray();
+      // Использовем getAllProjects для получения проектов с учетом демо-режима
+      const projects = await this.getAllProjects();
+      return projects.filter(project => project.status === 'active');
     } catch (error) {
       handleDexieError(error, 'Ошибка при получении активных проектов');
       return [];
@@ -71,10 +113,9 @@ export const projectStorage = {
    */
   async getProjectsByStatus(status: ProjectStatus): Promise<Project[]> {
     try {
-      return await db.projects
-      .where('status')
-      .equals(status)
-      .toArray();
+      // Использовем getAllProjects для получения проектов с учетом демо-режима
+      const projects = await this.getAllProjects();
+      return projects.filter(project => project.status === status);
     } catch (error) {
       handleDexieError(error, `Ошибка при получении проектов со статусом "${status}"`);
       return [];
@@ -88,12 +129,18 @@ export const projectStorage = {
     try {
       const timestamp = new Date().toISOString();
 
+      // Проверяем, находимся ли мы в демо-режиме
+      const session = await dbService.getCurrentSession();
+      const isDemo = session?.provider === 'demo' || localStorage.getItem('demo_mode') === 'true';
+
       // Создаем новый проект
       const newProject: Project = {
         id: generateId(),
         ...projectData,
         createdAt: timestamp,
-        updatedAt: timestamp
+        updatedAt: timestamp,
+        demoData: isDemo, // Явно устанавливаем флаг демо-данных
+        createdBy: session?.userId || 'unknown' // Добавляем создателя
       };
 
       // Используем транзакцию для обеспечения целостности
@@ -102,8 +149,8 @@ export const projectStorage = {
         await db.projects.add(newProject);
       });
 
-      // Добавляем операцию в очередь синхронизации
-      if (navigator.onLine) {
+      // Добавляем операцию в очередь синхронизации если онлайн и не в демо-режиме
+      if (navigator.onLine && !isDemo) {
         await syncService.addToSyncQueue('create', 'project', newProject);
       }
 
@@ -119,6 +166,10 @@ export const projectStorage = {
    */
   async updateProject(projectData: Partial<Project> & { id: string }): Promise<Project> {
     try {
+      // Проверяем, находимся ли мы в демо-режиме
+      const session = await dbService.getCurrentSession();
+      const isDemo = session?.provider === 'demo' || localStorage.getItem('demo_mode') === 'true';
+
       // Используем транзакцию для целостности данных
       return await db.runTransaction('readwrite', ['projects'], async () => {
         // Получаем текущий проект
@@ -126,6 +177,12 @@ export const projectStorage = {
 
         if (!existingProject) {
           throw new Error(`Проект с ID ${projectData.id} не найден`);
+        }
+
+        // Проверяем доступ к проекту
+        if ((isDemo && !existingProject.demoData) ||
+          (!isDemo && existingProject.demoData)) {
+          throw new Error(`Доступ к проекту с ID ${projectData.id} запрещен`);
         }
 
         // Обработка teamMembers для предотвращения проблем с вложенными объектами
@@ -139,15 +196,16 @@ export const projectStorage = {
           ...existingProject,
           ...projectData,
           teamMembers,
-          updatedAt: new Date().toISOString()
+          updatedAt: new Date().toISOString(),
+          demoData: existingProject.demoData // Сохраняем флаг демо-данных
         };
 
         // Обновляем в локальной БД
         const { id: projectId, ...fieldsToUpdate } = updatedProject;
         await db.projects.update(projectId, fieldsToUpdate);
 
-        // Добавляем операцию в очередь синхронизации
-        if (navigator.onLine) {
+        // Добавляем операцию в очередь синхронизации если онлайн и не в демо-режиме
+        if (navigator.onLine && !isDemo) {
           await syncService.addToSyncQueue('update', 'project', updatedProject);
         }
 
@@ -164,6 +222,10 @@ export const projectStorage = {
    */
   async deleteProject(id: string): Promise<void> {
     try {
+      // Проверяем, находимся ли мы в демо-режиме
+      const session = await dbService.getCurrentSession();
+      const isDemo = session?.provider === 'demo' || localStorage.getItem('demo_mode') === 'true';
+
       // Используем транзакцию для согласованной обработки проекта и связанных задач
       await db.runTransaction('readwrite', ['projects', 'tasks'], async () => {
         // Сначала получаем проект для синхронизации
@@ -173,14 +235,20 @@ export const projectStorage = {
           throw new Error(`Проект с ID ${id} не найден`);
         }
 
+        // Проверяем доступ к проекту
+        if ((isDemo && !project.demoData) ||
+          (!isDemo && project.demoData)) {
+          throw new Error(`Доступ к проекту с ID ${id} запрещен`);
+        }
+
         // Получаем связанные задачи
         const projectTasks = await taskStorage.getTasksByProject(id);
 
         // Удаляем проект из локальной БД
         await db.projects.delete(id);
 
-        // Добавляем операцию удаления проекта в очередь синхронизации
-        if (navigator.onLine) {
+        // Добавляем операцию удаления проекта в очередь синхронизации если онлайн и не в демо-режиме
+        if (navigator.onLine && !isDemo) {
           await syncService.addToSyncQueue('delete', 'project', { id });
         }
 
@@ -191,8 +259,8 @@ export const projectStorage = {
             updatedAt: new Date().toISOString()
           });
 
-          // Добавляем операцию обновления задачи в очередь синхронизации
-          if (navigator.onLine) {
+          // Добавляем операцию обновления задачи в очередь синхронизации если онлайн и не в демо-режиме
+          if (navigator.onLine && !isDemo) {
             await syncService.addToSyncQueue('update', 'task', {
               ...task,
               projectId: undefined,
@@ -262,7 +330,9 @@ export const projectStorage = {
   async searchProjects(query: string): Promise<Project[]> {
     try {
       const queryLower = query.toLowerCase().trim();
-      const allProjects = await db.projects.toArray();
+
+      // Используем getAllProjects для учета демо-режима
+      const allProjects = await this.getAllProjects();
 
       return allProjects.filter(project =>
         project.title.toLowerCase().includes(queryLower) ||

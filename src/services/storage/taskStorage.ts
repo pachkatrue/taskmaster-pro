@@ -2,6 +2,7 @@ import { db, handleDexieError } from './db';
 import { Task, TaskStatus } from '../../features/tasks/tasksSlice';
 import { syncService } from './syncService';
 import { generateId } from '../../utils';
+import { dbService } from './dbService';
 
 /**
  * Сервис для работы с задачами в локальном хранилище
@@ -13,7 +14,26 @@ export const taskStorage = {
    */
   async getAllTasks(): Promise<Task[]> {
     try {
-      return await db.tasks.toArray();
+      // Проверяем, находимся ли мы в демо-режиме
+      const session = await dbService.getCurrentSession();
+      const isDemo = session?.provider === 'demo' || localStorage.getItem('demo_mode') === 'true';
+
+      if (isDemo) {
+        // В демо-режиме возвращаем только демо-задачи
+        return await db.tasks
+        .filter(task => task.demoData === true)
+        .toArray();
+      } else if (session) {
+        // В обычном режиме возвращаем только задачи пользователя
+        return await db.tasks
+        .filter(task =>
+          !task.demoData &&
+          (task.assigneeId === session.userId || task.createdBy === session.userId)
+        )
+        .toArray();
+      }
+
+      return [];
     } catch (error) {
       handleDexieError(error, 'Ошибка при получении задач');
       return []; // Никогда не выполнится, т.к. handleDexieError выбрасывает исключение
@@ -25,10 +45,30 @@ export const taskStorage = {
    */
   async getTasksByStatus(status: TaskStatus): Promise<Task[]> {
     try {
-      return await db.tasks
-      .where('status')
-      .equals(status)
-      .toArray();
+      // Проверяем, находимся ли мы в демо-режиме
+      const session = await dbService.getCurrentSession();
+      const isDemo = session?.provider === 'demo' || localStorage.getItem('demo_mode') === 'true';
+
+      if (isDemo) {
+        // В демо-режиме возвращаем только демо-задачи с нужным статусом
+        return await db.tasks
+        .filter(task =>
+          task.demoData === true &&
+          task.status === status
+        )
+        .toArray();
+      } else if (session) {
+        // В обычном режиме возвращаем только задачи пользователя с нужным статусом
+        return await db.tasks
+        .filter(task =>
+          !task.demoData &&
+          task.status === status &&
+          (task.assigneeId === session.userId || task.createdBy === session.userId)
+        )
+        .toArray();
+      }
+
+      return [];
     } catch (error) {
       handleDexieError(error, `Ошибка при получении задач со статусом ${status}`);
       return [];
@@ -40,10 +80,30 @@ export const taskStorage = {
    */
   async getTasksByProject(projectId: string): Promise<Task[]> {
     try {
-      return await db.tasks
-      .where('projectId')
-      .equals(projectId)
-      .toArray();
+      // Проверяем, находимся ли мы в демо-режиме
+      const session = await dbService.getCurrentSession();
+      const isDemo = session?.provider === 'demo' || localStorage.getItem('demo_mode') === 'true';
+
+      if (isDemo) {
+        // В демо-режиме возвращаем только демо-задачи для указанного проекта
+        return await db.tasks
+        .filter(task =>
+          task.demoData === true &&
+          task.projectId === projectId
+        )
+        .toArray();
+      } else if (session) {
+        // В обычном режиме возвращаем только задачи пользователя для указанного проекта
+        return await db.tasks
+        .filter(task =>
+          !task.demoData &&
+          task.projectId === projectId &&
+          (task.assigneeId === session.userId || task.createdBy === session.userId)
+        )
+        .toArray();
+      }
+
+      return [];
     } catch (error) {
       handleDexieError(error, `Ошибка при получении задач для проекта ${projectId}`);
       return [];
@@ -56,7 +116,21 @@ export const taskStorage = {
   async getTaskById(id: string): Promise<Task | undefined> {
     try {
       const task = await db.tasks.get(id);
-      return task;
+
+      if (!task) return undefined;
+
+      // Проверяем, находимся ли мы в демо-режиме
+      const session = await dbService.getCurrentSession();
+      const isDemo = session?.provider === 'demo' || localStorage.getItem('demo_mode') === 'true';
+
+      // Проверяем доступ к задаче
+      if ((isDemo && task.demoData) ||
+        (!isDemo && !task.demoData && session &&
+          (task.assigneeId === session.userId || task.createdBy === session.userId))) {
+        return task;
+      }
+
+      return undefined;
     } catch (error) {
       handleDexieError(error, `Ошибка при получении задачи с ID ${id}`);
       return undefined;
@@ -64,18 +138,24 @@ export const taskStorage = {
   },
 
   /**
-   * Добавить задачу с поддержкой транзакций
+   * Добавить задачу
    */
   async addTask(taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>): Promise<Task> {
     try {
       const timestamp = new Date().toISOString();
+
+      // Проверяем, находимся ли мы в демо-режиме
+      const session = await dbService.getCurrentSession();
+      const isDemo = session?.provider === 'demo' || localStorage.getItem('demo_mode') === 'true';
 
       // Создаем новую задачу
       const newTask: Task = {
         id: generateId(),
         ...taskData,
         createdAt: timestamp,
-        updatedAt: timestamp
+        updatedAt: timestamp,
+        demoData: isDemo, // Явно устанавливаем флаг демо-данных
+        createdBy: session?.userId || 'unknown' // Добавляем создателя
       };
 
       // Добавляем задачу в транзакции для обеспечения целостности
@@ -84,8 +164,8 @@ export const taskStorage = {
         await db.tasks.add(newTask);
       });
 
-      // Добавляем операцию в очередь синхронизации, если онлайн
-      if (navigator.onLine) {
+      // Добавляем операцию в очередь синхронизации, если онлайн и не в демо-режиме
+      if (navigator.onLine && !isDemo) {
         await syncService.addToSyncQueue('create', 'task', newTask);
       }
 
@@ -101,6 +181,10 @@ export const taskStorage = {
    */
   async updateTask(taskData: Partial<Task> & { id: string }): Promise<Task> {
     try {
+      // Проверяем, находимся ли мы в демо-режиме
+      const session = await dbService.getCurrentSession();
+      const isDemo = session?.provider === 'demo' || localStorage.getItem('demo_mode') === 'true';
+
       // Используем транзакцию для обеспечения целостности данных
       return await db.runTransaction('readwrite', ['tasks'], async () => {
         // Получаем текущую задачу
@@ -110,18 +194,25 @@ export const taskStorage = {
           throw new Error(`Задача с ID ${taskData.id} не найдена`);
         }
 
+        // Проверяем доступ к задаче
+        if ((isDemo && !existingTask.demoData) ||
+          (!isDemo && existingTask.demoData)) {
+          throw new Error(`Доступ к задаче с ID ${taskData.id} запрещен`);
+        }
+
         // Объединяем данные и обновляем timestamp
         const updatedTask: Task = {
           ...existingTask,
           ...taskData,
-          updatedAt: new Date().toISOString()
+          updatedAt: new Date().toISOString(),
+          demoData: existingTask.demoData // Сохраняем флаг демо-данных
         };
 
         // Обновляем в локальной БД
         await db.tasks.update(taskData.id, updatedTask);
 
-        // Добавляем операцию в очередь синхронизации
-        if (navigator.onLine) {
+        // Добавляем операцию в очередь синхронизации если онлайн и не в демо-режиме
+        if (navigator.onLine && !isDemo) {
           await syncService.addToSyncQueue('update', 'task', updatedTask);
         }
 
@@ -150,10 +241,20 @@ export const taskStorage = {
    */
   async deleteTask(id: string): Promise<void> {
     try {
+      // Проверяем, находимся ли мы в демо-режиме
+      const session = await dbService.getCurrentSession();
+      const isDemo = session?.provider === 'demo' || localStorage.getItem('demo_mode') === 'true';
+
       // Получаем задачу отдельно
       const task = await db.tasks.get(id);
       if (!task) {
         throw new Error(`Задача с ID ${id} не найдена`);
+      }
+
+      // Проверяем доступ к задаче
+      if ((isDemo && !task.demoData) ||
+        (!isDemo && task.demoData)) {
+        throw new Error(`Доступ к задаче с ID ${id} запрещен`);
       }
 
       // Удаляем задачу из БД в транзакции
@@ -161,8 +262,8 @@ export const taskStorage = {
         await db.tasks.delete(id);
       });
 
-      // ВНЕ транзакции: добавляем операцию в syncQueue
-      if (navigator.onLine) {
+      // ВНЕ транзакции: добавляем операцию в syncQueue если онлайн и не в демо-режиме
+      if (navigator.onLine && !isDemo) {
         await syncService.addToSyncQueue('delete', 'task', { id });
       }
     } catch (error) {
@@ -182,8 +283,7 @@ export const taskStorage = {
     try {
       const query = searchText.toLowerCase().trim();
 
-      // Получаем все задачи и выполняем поиск в памяти
-      // Для больших данных можно реализовать полнотекстовый поиск
+      // Получаем все задачи с учетом демо-режима и выполняем поиск в памяти
       const allTasks = await this.getAllTasks();
 
       return allTasks.filter(task => {

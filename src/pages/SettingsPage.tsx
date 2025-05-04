@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { useSettings } from '../hooks/useSettings'; // путь подставь свой
+import { useSettings } from '../hooks/useSettings';
+import { useAuth } from '../hooks/useAuth';
+import SessionsManager from '../components/common/SessionsManager';
 
 const SettingsPage: React.FC = () => {
   const {
     theme,
     notifications,
     app,
-    isLoading,
+    isLoading: settingsLoading,
     error,
     loadSettings,
     saveSettings,
@@ -15,19 +17,43 @@ const SettingsPage: React.FC = () => {
     updateAppSettings,
   } = useSettings();
 
+  // Используем хук авторизации для получения данных пользователя
+  const { user } = useAuth();
+
+  // Состояние формы профиля, инициализируем данными пользователя
   const [profileForm, setProfileForm] = useState({
-    fullName: 'Павел Михайлов',
-    email: 'pmihajlov14@gmail.com',
-    phone: '+7 (968) 106-03-49',
-    bio: 'Senior Frontend Developer',
-    avatar: './user.jpg',
+    fullName: '',
+    email: '',
+    phone: '',
+    bio: '',
+    avatar: '',
   });
 
-  const [activeTab, setActiveTab] = useState<'profile' | 'notifications' | 'app' | 'security'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'notifications' | 'app' | 'security' | 'sessions'>('profile');
+  const [isLoading, setIsLoading] = useState(true);
 
+  // Загружаем настройки и данные пользователя
   useEffect(() => {
-    loadSettings();
-  }, [loadSettings]);
+    const initialize = async () => {
+      setIsLoading(true);
+      await loadSettings();
+
+      // Инициализируем форму профиля данными пользователя
+      if (user) {
+        setProfileForm({
+          fullName: user.fullName || '',
+          email: user.email || '',
+          phone: user.phone || '',
+          bio: user.bio || '',
+          avatar: user.avatar || '',
+        });
+      }
+
+      setIsLoading(false);
+    };
+
+    initialize();
+  }, [loadSettings, user]);
 
   const handleProfileChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -62,7 +88,7 @@ const SettingsPage: React.FC = () => {
 
       {/* Tabs */}
       <div className="mb-6">
-        {(['profile', 'notifications', 'app', 'security'] as const).map((tab) => (
+        {(['profile', 'notifications', 'app', 'security', 'sessions'] as const).map((tab) => (
           <button
             key={tab}
             className={`mr-4 px-4 py-2 border-b-2 ${
@@ -75,6 +101,7 @@ const SettingsPage: React.FC = () => {
               notifications: 'Уведомления',
               app: 'Приложение',
               security: 'Безопасность',
+              sessions: 'Сессии',
             }[tab]}
           </button>
         ))}
@@ -276,8 +303,16 @@ const SettingsPage: React.FC = () => {
         </div>
       )}
 
+      {/* Sessions tab */}
+      {activeTab === 'sessions' && (
+        <div>
+          <h2 className="text-xl font-medium mb-4">Управление сессиями</h2>
+          <SessionsManager />
+        </div>
+      )}
+
       {/* Загрузка и ошибки */}
-      {isLoading && <p className="text-sm text-gray-500 mt-4">Загрузка...</p>}
+      {(isLoading || settingsLoading) && <p className="text-sm text-gray-500 mt-4">Загрузка...</p>}
       {error && <p className="text-sm text-red-500 mt-4">{error}</p>}
     </div>
   );

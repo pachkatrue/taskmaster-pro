@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { dbService } from '../../services/storage/dbService';
+import AuthSessionManager from './AuthSessionManager';
 
 interface DbInitializerProps {
   children: React.ReactNode;
@@ -161,8 +162,12 @@ const DbInitializer: React.FC<DbInitializerProps> = ({ children }) => {
     );
   }
 
-  // Если БД инициализирована, рендерим дочерние компоненты
-  return <>{children}</>;
+  // Если БД инициализирована, рендерим дочерние компоненты с менеджером сессий
+  return (
+    <AuthSessionManager>
+      {children}
+    </AuthSessionManager>
+  );
 };
 
 export default DbInitializer;

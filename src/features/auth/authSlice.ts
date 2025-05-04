@@ -1,11 +1,15 @@
 import { createSlice, PayloadAction, createAsyncThunk } from '@reduxjs/toolkit';
 import { apiService } from '../../services/api/apiService';
+import { dbService } from '../../services/storage/dbService';
+import { db } from '../../services/storage/db';
 
 // Типы для состояний авторизации
 export interface User {
   id: string;
   fullName: string;
   email: string;
+  phone?: string;
+  bio?: string;
   avatar?: string;
 }
 
@@ -26,6 +30,49 @@ const initialState: AuthState = savedAuth
     isLoading: false,
     error: null,
   };
+
+// Экшен для автоматического входа при запуске приложения
+export const tryAutoLogin = createAsyncThunk(
+  'auth/tryAutoLogin',
+  async (_, { rejectWithValue }) => {
+    try {
+      // Пытаемся получить данные пользователя из активной сессии
+      const user = await dbService.tryAutoLogin();
+
+      if (user) {
+        return user;
+      }
+
+      return rejectWithValue('Нет активной сессии');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Ошибка автоматического входа';
+      return rejectWithValue(errorMessage);
+    }
+  }
+);
+
+// Экшен для гостевого входа
+export const loginAsGuest = createAsyncThunk(
+  'auth/loginAsGuest',
+  async (_, { rejectWithValue }) => {
+    try {
+      // Создаем гостевую сессию
+      const guestSession = await dbService.createGuestSession();
+
+      // Получаем данные гостевого пользователя
+      const guestUser = await db.users.get(guestSession.userId);
+
+      if (guestUser) {
+        return guestUser;
+      }
+
+      return rejectWithValue('Не удалось создать гостевую сессию');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Ошибка гостевого входа';
+      return rejectWithValue(errorMessage);
+    }
+  }
+);
 
 // Асинхронные экшены для авторизации
 export const loginUser = createAsyncThunk(
@@ -112,6 +159,9 @@ export const logoutUser = createAsyncThunk(
   'auth/logout',
   async (_, { rejectWithValue }) => {
     try {
+      // Закрываем текущую сессию в IndexedDB
+      await dbService.closeCurrentSession();
+
       // Имитация запроса к API
       await new Promise(resolve => setTimeout(resolve, 500));
       return true;
@@ -131,7 +181,7 @@ const authSlice = createSlice({
     clearError: (state) => {
       state.error = null;
     },
-    // Новый редьюсер для прямой обработки успешной авторизации через OAuth
+    // Редьюсер для прямой обработки успешной авторизации через OAuth
     loginSuccess: (state, action: PayloadAction<User>) => {
       state.isLoading = false;
       state.isAuthenticated = true;
@@ -237,6 +287,39 @@ const authSlice = createSlice({
       localStorage.removeItem('auth');
     })
     .addCase(logoutUser.rejected, (state, action) => {
+      state.isLoading = false;
+      state.error = action.payload as string;
+    })
+
+    // Обработчики для автоматического входа
+    .addCase(tryAutoLogin.pending, (state) => {
+      state.isLoading = true;
+      state.error = null;
+    })
+    .addCase(tryAutoLogin.fulfilled, (state, action: PayloadAction<User>) => {
+      state.isLoading = false;
+      state.isAuthenticated = true;
+      state.user = action.payload;
+    })
+    .addCase(tryAutoLogin.rejected, (state) => {
+      state.isLoading = false;
+      // Не устанавливаем ошибку, так как это нормальное поведение
+    })
+
+    // Обработчики для гостевого входа
+    .addCase(loginAsGuest.pending, (state) => {
+      state.isLoading = true;
+      state.error = null;
+    })
+    .addCase(loginAsGuest.fulfilled, (state, action: PayloadAction<User>) => {
+      state.isLoading = false;
+      state.isAuthenticated = true;
+      state.user = action.payload;
+
+      // Отмечаем, что это гостевой вход
+      localStorage.setItem('guest_mode', 'true');
+    })
+    .addCase(loginAsGuest.rejected, (state, action) => {
       state.isLoading = false;
       state.error = action.payload as string;
     });

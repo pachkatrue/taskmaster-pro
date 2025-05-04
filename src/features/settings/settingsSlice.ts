@@ -1,5 +1,6 @@
-import { createSlice, PayloadAction, createAsyncThunk } from '@reduxjs/toolkit';
+import { createSlice, PayloadAction, createAsyncThunk, createAction } from '@reduxjs/toolkit';
 import { db } from '../../services/storage/db';
+import { dbService } from '../../services/storage/dbService';
 
 // Типы для настроек
 export interface ThemeSettings {
@@ -64,12 +65,36 @@ if (typeof document !== 'undefined') {
   }
 }
 
+// Новые действия для загрузки настроек с учетом демо-режима
+export const fetchSettingsStart = createAction('settings/fetchSettingsStart');
+export const fetchSettingsSuccess = createAction<Omit<SettingsState, 'isLoading' | 'error'>>('settings/fetchSettingsSuccess');
+export const fetchSettingsError = createAction<string>('settings/fetchSettingsError');
+
 // Асинхронные экшены для настроек
 export const fetchSettings = createAsyncThunk(
   'settings/fetchSettings',
   async (_, { rejectWithValue }) => {
     try {
-      const settings = await db.settings.get('1');
+      // Проверяем текущую сессию для определения режима
+      const session = await dbService.getCurrentSession();
+      const isDemo = session?.provider === 'demo' || localStorage.getItem('demo_mode') === 'true';
+
+      let settings;
+
+      if (isDemo) {
+        // В демо-режиме получаем демо-настройки
+        settings = await db.settings
+        .filter(setting => setting.demoData === true)
+        .first();
+      } else {
+        // В обычном режиме получаем настройки текущего пользователя
+        settings = await db.settings
+        .filter(setting =>
+          !setting.demoData &&
+          (setting.userId === session?.userId || setting.id === '1')
+        )
+        .first();
+      }
 
       if (!settings) {
         throw new Error('Настройки не найдены в IndexedDB');
@@ -87,12 +112,47 @@ export const updateSettings = createAsyncThunk(
   'settings/updateSettings',
   async (settings: Partial<SettingsState>, { rejectWithValue }) => {
     try {
-      // Имитация запроса к API
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Получаем текущую сессию
+      const session = await dbService.getCurrentSession();
+      const isDemo = session?.provider === 'demo' || localStorage.getItem('demo_mode') === 'true';
 
       // Если меняется тема, сохраняем в localStorage
       if (settings.theme?.darkMode !== undefined) {
         localStorage.setItem('theme', settings.theme.darkMode ? 'dark' : 'light');
+      }
+
+      // Если это демо-режим, обновляем демо-настройки
+      if (isDemo) {
+        // В демо-режиме обновляем настройки только в localStorage
+        localStorage.setItem('demo_settings', JSON.stringify({
+          ...settings,
+          demoData: true
+        }));
+      } else if (session) {
+        // В обычном режиме обновляем настройки в БД
+        const settingId = '1'; // Или можно использовать ID пользователя
+
+        // Проверяем, существуют ли настройки
+        const existingSettings = await db.settings.get(settingId);
+
+        if (existingSettings) {
+          // Обновляем существующие настройки
+          await db.settings.update(settingId, {
+            ...existingSettings,
+            ...settings,
+            userId: session.userId,
+            demoData: false
+          });
+        } else {
+          // Создаем новые настройки
+          await db.settings.add({
+            id: settingId,
+            ...initialState,
+            ...settings,
+            userId: session.userId,
+            demoData: false
+          });
+        }
       }
 
       return settings;
@@ -151,8 +211,31 @@ const settingsSlice = createSlice({
     },
   },
   extraReducers: (builder) => {
-    // Обработка загрузки настроек
+    // Обработка новых экшенов для оптимизированной загрузки
     builder
+    .addCase(fetchSettingsStart, (state) => {
+      state.isLoading = true;
+      state.error = null;
+    })
+    .addCase(fetchSettingsSuccess, (state, action) => {
+      state.isLoading = false;
+      state.theme = action.payload.theme;
+      state.notifications = action.payload.notifications;
+      state.app = action.payload.app;
+
+      // Обновляем DOM в соответствии с темой
+      if (action.payload.theme.darkMode) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    })
+    .addCase(fetchSettingsError, (state, action) => {
+      state.isLoading = false;
+      state.error = action.payload;
+    })
+
+    // Обработка загрузки настроек
     .addCase(fetchSettings.pending, (state) => {
       state.isLoading = true;
       state.error = null;
